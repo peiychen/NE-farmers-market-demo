@@ -1,0 +1,540 @@
+---
+title: "Nebraska Farmers Market Demo"
+format: 
+  html:
+    number-sections: true
+    toc: true
+    toc-depth: 4
+    embed-resources: true
+    # page-layout: custom
+server: shiny
+execute:
+  echo: true
+  # message: false
+---
+
+## Overview
+
+This document walks through the workflow of creating interactive visualizations using R Shiny, beginning with exploratory data analysis--including data processing, merging, and reshaping--to prepare the data for use in a dashboard. A demo dashboard featuring interactive visualizations for exploring product diversity by growers at the county, and market levels is included at the end.
+
+The data was collected from the [Nebraska Farmers Market Online Database](https://nebraska-nda.caseapp.tylerapp.com/page.request.do?page=page.FM.Landing) via web scraping. For this demo, a sample of growers who sell produce across 20 counties in Nebraska was selected.
+
+The code and datasets used for the demo can be found on: https://github.com/peiychen/NE-farmers-market-demo.
+
+**Acknowledgment**: This document was annotated and refined with the assistance of ChatGPT, which helped clarify, expand, and proofread both narrative and code documentation.
+
+## Data Exploration
+
+### Load Required Packages and Import Datasets
+
+Packages used:
+
+- `here`: Simplifies file referencing by creating paths relative to the project root.
+- `janitor`: Provides tools for data cleaning, especially column name formatting.
+- `tidyverse`: A collection of R packages for data manipulation, visualization, and analysis.
+
+Key functions:
+
+- `theme_set()`: Sets the default theme for all `ggplot2` visualizations.
+- `theme()`: Customizes specific theme elements like grid lines for cleaner plots.
+
+```{r message=FALSE, warning=FALSE}
+# Clear the environment to avoid conflicts with existing objects
+rm(list = ls())  
+
+# Load necessary packages
+library(here)
+library(janitor)
+library(tidyverse)
+
+# Set a clean and minimal default theme for ggplot2 visualizations
+theme_set(
+  theme_minimal() + 
+    theme(
+      panel.grid = element_line(linewidth = 1/5), # Thinner grid lines
+      panel.grid.minor = element_blank(),         # Remove minor grid lines
+      panel.grid.major.y = element_blank()        # Remove horizontal major grid lines
+    )
+)
+
+# Import datasets using relative file paths
+grower_data  <- readRDS(here("data", "grower_sample.rds"))  # RDS file containing detailed grower data
+vendor_info  <- read_csv(here("data", "vendor_info.csv"), 
+                         show_col_types = FALSE)            # CSV file with vendor details
+market_info  <- read_csv(here("data", "market_info.csv"), 
+                         show_col_types = FALSE)            # CSV file with market details
+```
+
+### Initital Glance of Data: `grower_data`
+
+```{r}
+# Check the dimensions of the dataset (rows x columns)
+dim(grower_data)
+
+# Display the names of all columns in the dataset
+names(grower_data)
+
+# View the first 6 rows of the dataset to preview the data
+# head(grower_data)
+```
+
+- Unit of Analysis: Each row in the dataset represents a **grower**
+- Columns of Interest:
+  - `grower_name`: Name of the grower/vendor
+  - `grower_market`: The markets where the grower sells products
+  - `grower_vegetable`: Vegetables sold by the grower
+  - `grower_fruit`: Fruits sold by the grower
+  - `grower_herb`: Herbs sold by the grower
+
+```{r}
+# Preview the first few entries in each key column
+head(grower_data$grower_market)
+head(grower_data$grower_vegetable)
+head(grower_data$grower_fruit)
+head(grower_data$grower_herb)
+```
+
+### Create Separate Data Frames
+
+This step prepares individual data frames for different product types by extracting and cleaning relevant columns.
+
+Key functions:
+
+- `select()`: Selects specific variables from a data frame (can also be used to rename them).
+- `unnest()`: Expands list-columns into regular rows and columns.  
+  - `keep_empty = TRUE`: Ensures that all growers are retained in the output, even if they do not sell a particular type of product.
+- `str_trim()`: Removes leading and trailing white space from character strings.
+
+```{r}
+grower_market = grower_data |> 
+  select(grower_name, grower_market) |> 
+  unnest(c(grower_name, grower_market), keep_empty = TRUE)
+
+# Preview the results
+grower_market
+
+# Remove leading/trailing white space from grower names
+grower_market$grower_name = str_trim(grower_market$grower_name)
+```
+
+```{r}
+grower_veggie = grower_data |> 
+  select(grower_name, grower_vegetable) |> 
+  unnest(cols = c(grower_name, grower_vegetable), keep_empty = TRUE)
+
+# Preview the results
+grower_veggie
+
+# Trim white space from grower names
+grower_veggie$grower_name = str_trim(grower_veggie$grower_name)
+```
+
+```{r}
+grower_fruit = grower_data |> 
+  select(grower_name, grower_fruit) |> 
+  unnest(cols = c(grower_name, grower_fruit), keep_empty = TRUE)
+
+# Preview the results
+grower_fruit
+
+# Trim white space from grower names
+grower_fruit$grower_name = str_trim(grower_fruit$grower_name)
+```
+
+```{r}
+grower_herb = grower_data |> 
+  select(grower_name, grower_herb) |> 
+  unnest(cols = c(grower_name, grower_herb), keep_empty = TRUE)
+
+# Preview the results
+grower_herb
+
+# Trim white space from grower names
+grower_herb$grower_name = str_trim(grower_herb$grower_name)
+```
+
+### Summarize Number of Vegetables, Fruits, and Herbs per Grower
+
+This section calculates how many different items (vegetables, fruits, or herbs) each grower sells.
+
+Key functions:
+
+- `mutate()`: Creates a new column (`count`) to indicate whether a product is present (`1`) or missing (`0`).
+- `group_by()`: Groups the data by `grower_name` to prepare for summarization.
+- `summarize()`: Aggregates the data to compute the number of items sold per grower.
+
+```{r}
+grower_veggie |>
+  mutate(count = case_when(is.na(grower_vegetable) ~ 0, TRUE ~ 1)) |>
+  group_by(grower_name) |>
+  summarize(n_veggie = sum(count)) -> grower_veggie_n
+
+# View the summarized data
+grower_veggie_n
+```
+
+```{r}
+grower_fruit |> 
+  mutate(count = case_when(is.na(grower_fruit) ~ 0, TRUE ~ 1)) |> 
+  group_by(grower_name) |> 
+  summarize(n_fruit = sum(count)) -> grower_fruit_n
+
+# View the summarized data
+grower_fruit_n
+```
+
+```{r}
+grower_herb |> 
+  mutate(count = case_when(is.na(grower_herb) ~ 0, TRUE ~ 1)) |> 
+  group_by(grower_name) |> 
+  summarize(n_herb = sum(count)) -> grower_herb_n
+
+# View the summarized data
+grower_herb_n
+```
+
+### Merge Product Data and Compute Total Products Sold
+
+This step combines the summarized counts of vegetables, fruits, and herbs sold by each grower into a single data frame, and calculates the total number of products per grower.
+
+Key functions:
+
+- `full_join()`: Merges data frames while retaining all growers, even if they don't sell certain product types.
+- `rowSums()`: Computes the total number of products (across vegetables, fruits, and herbs) for each grower, while handling missing values.
+
+```{r}
+# Merge product-specific data frames
+grower_product = grower_fruit_n |> 
+  full_join(grower_veggie_n) |> 
+  full_join(grower_herb_n)
+
+# Calculate total number of products sold by each grower
+grower_product = grower_product |> 
+  mutate(n_product = rowSums(grower_product[, 2:4], na.rm = TRUE))
+
+# View the result
+grower_product
+```
+
+### Plot: Bar Chart of Products Sold per Grower
+
+This section reshapes the data and visualizes the number of vegetables, fruits, and herbs sold by each grower using a horizontal stacked bar chart.
+
+#### Reshape to long format
+
+Convert wide-format summary data into long format for plotting.
+
+Key functions:
+
+- `pivot_longer`: Converts data from wide format to long format. This is useful for plotting or performing grouped operations across multiple columns. In this case, it turns the columns `n_veggie`, `n_fruit`, and `n_herb` into two columns:
+  - `name`: The original column names
+  - `value`: The corresponding values for each grower
+
+```{r}
+grower_product_long = grower_product |> 
+  pivot_longer(cols = n_fruit:n_herb)
+
+# Preview reshaped data
+grower_product_long
+```
+
+#### Define factor order and labels
+
+Set the desired order and labels for product categories.
+
+```{r}
+product_order = c("n_veggie", "n_fruit", "n_herb")
+product_label = c("Vegetable", "Fruit", "Herb")
+```
+
+#### Create horizontal stacked bar chart
+
+Plot the total number of products sold per grower, grouped by product type.
+
+```{r}
+grower_product_long |> 
+  mutate(grower_name = fct_reorder(grower_name, n_product), # Order growers by total product count
+         name = factor(name, 
+                       levels = rev(product_order),         # Set order for stacking
+                       labels = rev(product_label))) |>     # Apply readable labels
+  ggplot(aes(x = value, y = grower_name, fill = name)) + 
+  geom_col() + 
+  labs(x = "", y = "", fill = "Category") +
+        scale_fill_manual(values = c("#ffd74f", "#d00000", "#bccb2a")) + 
+  theme(axis.text.y = element_text(size = 2))
+```
+
+### County-Level Summary of Product Sales
+
+We extend our analysis by grouping growers by county to explore regional trends in product diversity.
+
+#### Step 1: Inspect `market_info` data
+
+Check the structure of the `market_info` dataset to identify relevant columns for joining.
+
+```{r}
+names(market_info)
+head(market_info)
+```
+
+#### Step 2: Add county information to `grower_market` data
+
+Use `left_join()` to merge county information into the `grower_market` data based on market names.
+
+```{r}
+# Merge market info to include county data
+grower_market_info = grower_market |> 
+  left_join(market_info |> 
+              select(name, county), 
+            by = join_by(grower_market == name))
+
+# Preview result
+grower_market_info
+```
+
+#### Step 3: Combine with `grower_product` data
+
+Now, enrich the grower-level product data with county information for each grower.
+
+Key functions:
+
+- `left_join()`: Merges two data frames by matching rows based on a common key (in this case, market names and grower names).
+  - `join_by()`: Allows you to specify the join condition when the column names differ between the two tables.
+  - `relationship = "many-to-one"`: Ensures the join logic respects the expected data structure—many growers can map to one row in `grower_product.`
+
+```{r}
+grower_data = grower_market_info |> 
+  select(grower_name, grower_market, county) |> 
+  left_join(grower_product, by = "grower_name", 
+            relationship = "many-to-one")
+
+# Preview final data with county information
+grower_data
+```
+
+### Focus on a Specific County: LANCASTER
+
+We now filter the dataset to only include growers from **LANCASTER** county and recreate the stacked bar chart for this subset.
+
+#### Filter, reshape, and prepare data for plotting
+
+Key functions recap:
+
+- `filter()`: Selects rows that meet specific criteria (here, county = "LANCASTER").
+- `distinct()`: Removes duplicate rows to ensure clean counts.
+- `pivot_longer()`: Reshapes data from wide to long format for plotting.
+- `fct_reorder()`: Orders factor levels based on another variable (helps with sorting in plots).
+
+```{r}
+grower_data_county = grower_data |>
+  filter(county == "LANCASTER") |>                               # Keep only LANCASTER county
+  distinct(grower_name, n_fruit, n_veggie, n_herb, n_product) |> # Remove duplicates
+  mutate(grower_name = fct_reorder(grower_name, n_product)) |>   # Reorder growers by total products
+  pivot_longer(cols = n_fruit:n_herb) |>                         # Convert to long format
+  mutate(name = factor(
+    name,
+    level = rev(product_order), # Ensure consistent order
+    label = rev(product_label)  # Use readable labels
+  ))
+```
+
+#### Plot: Products sold by growers in LANCASTER county
+
+```{r}
+grower_data_county |> 
+  mutate(grower_name = fct_reorder(grower_name, n_product)) |> 
+  ggplot(aes(x = value, y = grower_name, 
+             fill = name)) + 
+  geom_col() + 
+  labs(x = "", y = "", fill = "Category") +
+        scale_fill_manual(values = c("#ffd74f", "#d00000", "#bccb2a"))
+```
+
+### Focus on a Specific Farmers Market: Lincoln Haymarket
+
+Now we narrow the focus even further by filtering for a specific farmers market within **LANCASTER** county: **Lincoln Haymarket Farmers Market**.
+
+#### Filter, Reshape, and Prepare Data
+
+```{r}
+grower_data_market = grower_data |>
+  filter(county == "LANCASTER",
+         grower_market == "Lincoln Haymarket Farmers Market") |> # Focus on one market
+  distinct(grower_name, n_fruit, n_veggie, n_herb, n_product) |> # Remove duplicates
+  mutate(grower_name = fct_reorder(grower_name, n_product)) |>   # Order by product count
+  pivot_longer(cols = n_fruit:n_herb) |>                         # Reshape for plotting
+  mutate(name = factor(
+    name,
+    level = rev(product_order), # Ensure consistent stacking order
+    label = rev(product_label)  # Use readable labels
+  ))
+```
+
+#### Plot: Product mix at Lincoln Haymarket Farmers Market
+
+```{r}
+grower_data_market |> 
+  mutate(grower_name = fct_reorder(grower_name, n_product)) |> 
+  ggplot(aes(x = value, y = grower_name, 
+             fill = name)) + 
+  geom_col() + 
+  labs(x = "", y = "", fill = "Category") +
+        scale_fill_manual(values = c("#ffd74f", "#d00000", "#bccb2a"))
+```
+
+## Prepare Data for Shiny Dashboard Demo
+
+This section prepares key objects for use in a **Shiny dashboard**, focusing on dynamically populating dropdown menus and preserving preprocessed data.
+
+### Select Counties for Dashboard Dropdown
+
+Here, we extract and format the list of counties that will be available as options in the dashboard's dropdown selector.
+
+Key functions:
+
+- `tabyl()`: Quickly tabulates counts of unique values (from the `janitor` package).
+- `arrange()`: Orders rows based on specified columns.
+- `pull()`: Extracts a column as a vector.
+- `str_to_upper()`: Converts character strings to uppercase.
+
+```{r}
+grower_market_info |>
+  tabyl(county) |>              # Count growers per county
+  arrange(desc(n)) |>           # Sort counties by number of growers (descending)
+  pull(county) -> county_choice # Extract county names into a vector
+
+# Standardize to uppercase for consistent display
+county_choice = str_to_upper(county_choice)
+```
+
+### Save Objects for Shiny App
+
+Save the prepared data and menu options to an `.RData` file so they can be easily loaded into the Shiny app.
+
+- `save()`: Saves R objects to a file for later use (especially useful for R data wrangling).
+
+```{r}
+save(grower_data, county_choice, file = here("gen", "demo.RData"))
+```
+
+## Shiny Dashboard Demo
+
+```{r}
+#| context: setup
+#| include: FALSE
+
+rm(list = ls())
+library(here)
+library(janitor)
+library(tidyverse)
+library(shiny)
+library(plotly)
+
+theme_set(theme_minimal() + 
+            theme(panel.grid = element_line(linewidth = 1/5), 
+                  panel.grid.minor = element_blank(), 
+                  panel.grid.major.y = element_blank()))
+
+load(here("gen", "demo.RData"))
+```
+
+### UI Components
+
+This is a simple UI layout that allows users to select a county and market, and then view an interactive plot of growers and their products.
+
+```{r}
+# Dropdown for county selection
+selectInput(
+  inputId = "county",               # ID used in server logic
+  label = "County",                 # Label shown to user
+  choices = c("Please select" = "", # Default placeholder option
+              county_choice)        # Dynamic list of county options
+)
+
+# Dropdown for farmers market selection (to be populated reactively)
+selectInput(
+  inputId = "market", 
+  label = "Farmers Market", 
+  choices = c("Please select" = "")  # Initially empty, filled based on county input
+)
+
+# Output slot for interactive plot
+plotlyOutput("grower")               # Render plot with Plotly for interactivity
+```
+
+### Server Logic and Interactive Plotting
+
+The server handles reactive filtering by county and market, updates UI inputs, and generates an interactive bar chart using Plotly.
+
+```{r echo=TRUE}
+#| context: server
+
+# Reactive expression: filter data by selected county
+county_select = reactive({
+  req(input$county)
+  grower_data |> 
+    filter(county == input$county)
+})
+
+# Dynamically update market choices based on selected county
+observeEvent(input$county, {
+  markets = unique(county_select()$grower_market)
+  updateSelectInput(session, 
+                    inputId = "market", 
+                    choices = c("Please select" = "", markets), 
+                    selected = "")
+})
+
+# Define order and labels for product categories
+product_order = c("n_veggie", "n_fruit", "n_herb")
+product_label = c("Vegetable", "Fruit", "Herb")
+
+# Reactive expression: build data to plot based on user input
+grower_react = reactive({
+  df = NULL
+  
+  # Case 1: No county selected
+  if (input$county == "" || is.null(input$county)) {
+    df <- grower_data |> 
+      distinct(grower_name, n_fruit, n_veggie, n_herb, n_product) |>
+      filter(n_product != 0)
+  } 
+  
+  # Case 2: County selected, but no market selected
+  else if (input$market == "") {
+    df <- county_select() |> 
+      distinct(grower_name, n_fruit, n_veggie, n_herb, n_product)
+  } 
+  
+  # Case 3: Both county and market selected
+  else {
+    df <- county_select() |>
+      filter(grower_market == input$market) |>
+      distinct(grower_name, n_fruit, n_veggie, n_herb, n_product)
+  }
+  
+  # Reshape data and apply formatting for plotting
+  df |> 
+    mutate(grower_name = fct_reorder(grower_name, n_product)) |>
+    pivot_longer(cols = n_fruit:n_herb) |>
+    mutate(name = factor(name, 
+                         levels = rev(product_order), 
+                         labels = rev(product_label)))
+})
+
+# Render the interactive plot
+output$grower = renderPlotly({
+  grower_react() |>
+    ggplot(aes(x = value, y = grower_name, fill = name)) +
+    geom_col() +
+    labs(x = "", y = "", fill = "Category") +
+    scale_fill_manual(values = c("#ffd74f", "#d00000", "#bccb2a")) +
+    # scale_fill_viridis_c() +
+    theme_minimal() +
+    theme(panel.grid.major.y = element_blank(), 
+          # axis.text.y = element_blank(),
+          legend.position = "none") -> p
+  p = ggplotly(p, tooltip = c("y", "x", "fill"))
+})
+```
+
