@@ -19,7 +19,7 @@ This document walks through the workflow of creating interactive visualizations 
 
 The data was collected from the [Nebraska Farmers Market Online Database](https://nebraska-nda.caseapp.tylerapp.com/page.request.do?page=page.FM.Landing) via web scraping. For this demo, a sample of growers who sell produce across 20 counties in Nebraska was selected.
 
-The code and datasets used for the demo can be found on: https://github.com/peiychen/NE-farmers-market-demo.
+The code and datasets used for the demo can be found on: [https://github.com/peiychen/NE-farmers-market-demo](https://github.com/peiychen/NE-farmers-market-demo).
 
 **Acknowledgment**: This document was annotated and refined with the assistance of ChatGPT, which helped clarify, expand, and proofread both narrative and code documentation.
 
