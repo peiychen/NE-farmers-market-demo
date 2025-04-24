@@ -65,7 +65,7 @@ market_info  <- read_csv(here("data", "market_info.csv"),
                          show_col_types = FALSE)            # CSV file with market details
 ```
 
-### Initital Glance of Data: `grower_data`
+### Initial Glance at the Data: `grower_data`
 
 ```{r}
 # Check the dimensions of the dataset (rows x columns)
